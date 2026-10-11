@@ -59,7 +59,7 @@ asyncio.run(main())
 - `page.extract_all(Model, root="...")` builds one model per element matching `root`.
 - When nothing matches, the field's default applies. A required field with no match raises `ExtractionError`.
 - Pydantic does the type coercion, so `"51.77"` becomes a `float` and bad data fails loudly.
-- Fields without a `Selector` are left alone and need a default.
+- `Selector` is optional. A field without one is not scraped: it keeps its default, or is `None` if it has none.
 - `page.raw` is the underlying Patchright `Page` for clicks, waits and anything else.
 
 ## Site modules

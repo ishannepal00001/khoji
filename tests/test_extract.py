@@ -28,6 +28,19 @@ class Listing(BaseModel):
     cards: Annotated[list[Card], Selector(".card")]
 
 
+class Stock(BaseModel):
+    name: Annotated[str, Selector(".name")]
+    warehouse: str
+
+
+class Partial(BaseModel):
+    name: Annotated[str, Selector("h2")]
+    sku: str
+    quantity: int
+    note: str = "n/a"
+    seller: Annotated[Stock, Selector(".seller")]
+
+
 class NeedsMissing(BaseModel):
     sku: Annotated[str, Selector(".sku")]
 
@@ -66,6 +79,31 @@ async def test_extract_all_scopes_to_each_root(khoji: Khoji, server: str):
         ("Red widget", "Acme"),
         ("Blue widget", "Globex"),
     ]
+
+
+async def test_fields_without_a_selector_are_optional(khoji: Khoji, server: str):
+    page = await khoji.open(f"{server}/products")
+    item = await page.extract(Partial, root=".card")
+
+    assert type(item) is Partial
+    assert item.name == "Red widget"
+    assert item.sku is None and item.quantity is None  # no selector, no default
+    assert item.note == "n/a"  # no selector, default kept
+    assert item.seller == Stock.model_construct(name="Acme", warehouse=None)  # nested too
+    assert item.model_dump()["seller"] == {"name": "Acme", "warehouse": None}
+
+    items = await page.extract_all(Partial, root=".card")
+    assert [i.name for i in items] == ["Red widget", "Blue widget"]
+
+
+async def test_selector_fields_are_still_validated(khoji: Khoji, server: str):
+    class Bad(BaseModel):
+        price: Annotated[float, Selector("h2")]
+        sku: str
+
+    page = await khoji.open(f"{server}/products")
+    with pytest.raises(ExtractionError, match="price"):
+        await page.extract(Bad, root=".card")
 
 
 async def test_required_field_missing_raises(khoji: Khoji, server: str):

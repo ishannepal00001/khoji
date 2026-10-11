@@ -1,10 +1,11 @@
 import re
 import types
 from dataclasses import KW_ONLY, dataclass
-from typing import Any, Union, get_args, get_origin
+from functools import cache
+from typing import Any, Optional, Union, get_args, get_origin
 
 from patchright.async_api import Locator, Page
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 
 from .errors import ExtractionError
 
@@ -57,7 +58,7 @@ def _shape(annotation: Any) -> tuple[bool, type[BaseModel] | None]:
 
 async def _read(element: Locator, selector: Selector, nested: type[BaseModel] | None) -> Any:
     if nested is not None:
-        return await _collect(element, nested)
+        return await _build(element, nested)
     if selector.attr is not None:
         value = await element.get_attribute(selector.attr)
     else:
@@ -93,10 +94,40 @@ async def _collect(root: Page | Locator, model: type[BaseModel]) -> dict[str, An
     return data
 
 
-async def extract_model[M: BaseModel](root: Page | Locator, model: type[M], *, url: str) -> M:
+def _has_selector(model: type[BaseModel], name: str) -> bool:
+    return any(isinstance(m, Selector) for m in model.model_fields[name].metadata)
+
+
+@cache
+def _relaxed(model: type[BaseModel]) -> type[BaseModel]:
+    """`model` with its required, selector-less fields turned into optional ones.
+
+    A Selector is optional: a field without one has no source on the page, so instead of
+    failing as "missing" it falls back to None.
+    """
+    unsourced = {
+        name: (Optional[field.annotation], None)  # noqa: UP045 - the annotation is a runtime value
+        for name, field in model.model_fields.items()
+        if field.is_required() and not _has_selector(model, name)
+    }
+    if not unsourced:
+        return model
+    return create_model(model.__name__, __base__=model, **unsourced)
+
+
+async def _build[M: BaseModel](root: Page | Locator, model: type[M]) -> M:
     data = await _collect(root, model)
+    relaxed = _relaxed(model)
+    instance = relaxed.model_validate(data)
+    if relaxed is model:
+        return instance
+    # Hand back the caller's own class, not the relaxed stand-in used for validation.
+    return model.model_construct(_fields_set=instance.model_fields_set, **dict(instance))
+
+
+async def extract_model[M: BaseModel](root: Page | Locator, model: type[M], *, url: str) -> M:
     try:
-        return model.model_validate(data)
+        return await _build(root, model)
     except ValidationError as exc:
         raise ExtractionError(
             f"Could not extract {model.__name__} from {url}:\n{exc}", url=url, model=model

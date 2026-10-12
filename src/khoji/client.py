@@ -1,6 +1,6 @@
 """The `Khoji` client: the library's entry point."""
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from patchright.async_api import BrowserContext, Playwright, async_playwright
 
@@ -133,13 +133,14 @@ class Khoji:
             await page.close()
             raise
 
-    def site[S: "Site"](self, site_cls: type[S]) -> S:
+    def site[S: "Site"](self, site_cls: type[S], **kwargs: Any) -> S:
         """Bind a site module to this browser: `books = k.site(Books)`.
 
         Args:
             site_cls: The `Site` subclass to instantiate.
+            **kwargs: Extra arguments for the site's constructor, e.g. `settings=...`.
 
         Returns:
             An instance of `site_cls` that opens its pages through this client.
         """
-        return site_cls(self)
+        return site_cls(self, **kwargs)

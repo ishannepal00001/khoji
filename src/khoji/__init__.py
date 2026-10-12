@@ -6,7 +6,15 @@ Start from `Khoji`, which owns the browser and hands out pages; see its docstrin
 from .browser import BrowserLauncher
 from .client import Khoji
 from .config import KhojiConfig, ProxyConfig
-from .errors import BlockedError, ExtractionError, KhojiError, NavigationError
+from .errors import (
+    BlockedError,
+    ChatError,
+    ExtractionError,
+    KhojiError,
+    LoggedOutError,
+    NavigationError,
+    SendUnconfirmedError,
+)
 from .extract import Extractor, Selector
 from .page import KhojiPage
 from .sites import Site
@@ -14,14 +22,17 @@ from .sites import Site
 __all__ = [
     "BlockedError",
     "BrowserLauncher",
+    "ChatError",
     "ExtractionError",
     "Extractor",
     "Khoji",
     "KhojiConfig",
     "KhojiError",
     "KhojiPage",
+    "LoggedOutError",
     "NavigationError",
     "ProxyConfig",
     "Selector",
+    "SendUnconfirmedError",
     "Site",
 ]

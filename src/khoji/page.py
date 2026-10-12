@@ -1,6 +1,9 @@
 """`KhojiPage`: one browser tab, with block detection on navigation and typed extraction."""
 
+import logging
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Literal, Self
 
 from patchright.async_api import Error as PatchrightError
@@ -10,6 +13,8 @@ from pydantic import BaseModel
 from .config import KhojiConfig
 from .errors import BlockedError, NavigationError
 from .extract import Extractor
+
+log = logging.getLogger(__name__)
 
 WaitUntil = Literal["commit", "domcontentloaded", "load", "networkidle"]
 """Load state a navigation waits for before it returns."""
@@ -124,6 +129,30 @@ class KhojiPage:
     async def close(self) -> None:
         """Close the tab."""
         await self._page.close()
+
+    async def save_debug(self, directory: Path, label: str) -> Path | None:
+        """Save a screenshot and the page HTML, for working out what went wrong.
+
+        Failures to save are logged and never raised, so they cannot hide the original error.
+
+        Args:
+            directory: Folder to save into. Created if it does not exist.
+            label: Short tag added to the timestamped file names.
+
+        Returns:
+            The path of the saved files without their `.png` / `.html` extension, or None if
+            saving failed.
+        """
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            stem = directory / f"{datetime.now():%Y%m%d-%H%M%S}-{label}"
+            await self._page.screenshot(path=f"{stem}.png")
+            Path(f"{stem}.html").write_text(await self._page.content())
+        except (PatchrightError, OSError) as exc:
+            log.error("Could not save debug files: %s", exc)
+            return None
+        log.info("Saved debug files to %s.{png,html}", stem)
+        return stem
 
     async def _challenge(self) -> str | None:
         """Check whether the page currently shows an anti-bot challenge.

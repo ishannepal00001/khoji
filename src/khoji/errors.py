@@ -52,3 +52,18 @@ class ExtractionError(KhojiError):
         super().__init__(message)
         self.url = url
         self.model = model
+
+
+class ChatError(KhojiError):
+    """A chat site could not do what was asked: no such chat, an unstable list, a closed thread."""
+
+
+class LoggedOutError(ChatError):
+    """The chat site is not logged in, or logged the session out while it was in use."""
+
+
+class SendUnconfirmedError(ChatError):
+    """A message was typed and submitted but never showed up in the thread.
+
+    It may still have been sent, so check the conversation before sending it again.
+    """

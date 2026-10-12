@@ -42,3 +42,11 @@ async def test_unreachable_host_raises_navigation_error(khoji: Khoji):
 async def test_using_before_start_raises():
     with pytest.raises(KhojiError, match="not started"):
         await Khoji().new_page()
+
+
+async def test_save_debug_writes_screenshot_and_html(khoji: Khoji, server: str, tmp_path):
+    page = await khoji.open(f"{server}/products")
+    stem = await page.save_debug(tmp_path / "dumps", "check")
+    assert stem is not None
+    assert stem.with_name(stem.name + ".png").stat().st_size > 0
+    assert "Red widget" in stem.with_name(stem.name + ".html").read_text()

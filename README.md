@@ -82,7 +82,56 @@ async with Khoji() as k:
     books = await k.site(Books).front_page()
 ```
 
-See `examples/` for runnable versions.
+## Chat sites
+
+A chat web app is a `Site` that can also log in, list chats, open one, send and wait for replies.
+`khoji.chat` holds that behaviour once; a platform in `khoji.sites` only says where things are on the page.
+
+```
+Site (sites/base.py)            base_url, open a page
+  └─ ChatSite (chat/site.py)    login wait, chat list, thread, send, wait for reply
+       └─ WhatsApp (sites/whatsapp.py)   selectors and in-page JS
+```
+
+```python
+from khoji import Khoji
+from khoji.chat import Chat, Conversation, Message, Responder
+from khoji.sites import WhatsApp
+
+
+class Echo(Responder):
+    async def reply(self, chat: Chat, messages: list[Message]) -> list[str]:
+        last = [m for m in messages if m.direction == "in"][-1]
+        return [f"You said: {last.text}"]
+
+
+async with Khoji() as k, k.site(WhatsApp) as wa:  # first run: scan the QR code in the window
+    chat = await wa.find_chat("Alice")
+    await wa.open_thread(chat)
+    result = await Conversation(wa, chat, responder=Echo(), max_replies=3).run("Hello")
+```
+
+- `chats()`, `find_chat(name)`, `open_thread(chat)`, `messages()`, `send(text)` and `wait_for_reply(...)` can be used directly; `Conversation` is the send, wait, reply loop built on them.
+- Without a responder, `run()` returns as soon as the other side answers. `run(resume=True)` picks a conversation back up and treats whatever they sent after your last message as unanswered.
+- Login is never automated. The persistent profile keeps the session after the first login.
+- `send()` types like a person and confirms the message appeared. If it cannot confirm, it raises `SendUnconfirmedError` and never retries by itself.
+- Timings (typing speed, polling gaps, how long to wait) are in `ChatSettings`: `k.site(WhatsApp, settings=ChatSettings(wait_hours=1))`.
+- `site.save_debug("label")` saves a screenshot and the page HTML under `debug/<site>/`. Those files contain your chats; `debug/` is git-ignored.
+
+### Adding a platform
+
+Subclass `ChatSite` in `khoji/sites/`, set `name` and `base_url`, and implement the hooks:
+
+| Hook | Returns |
+|---|---|
+| `_session_state()` | `SessionState`: chat list showing, login prompt showing, or still loading |
+| `_chat_rows()` | The chat list rows, top to bottom, from one read |
+| `_read_chat(row, position)` | A `Chat` built from one row |
+| `_composer()` | Locator of the message input |
+| `_thread_is_open()` | Whether a conversation is open |
+| `_read_messages()` | The open thread's `Message`s, oldest first |
+| `_thread_text()` (optional) | Visible text of the message area, a fallback for confirming a send |
+| `inspect()` (optional) | A structure-only dump of the thread markup, for fixing selectors |
 
 ## Configuration
 
@@ -118,6 +167,9 @@ All inherit from `KhojiError`.
 | `NavigationError` | The page could not be loaded: DNS failure, timeout, refused connection |
 | `BlockedError` | HTTP 403/429, or an anti-bot challenge (Cloudflare, DataDome, PerimeterX) that did not clear within `challenge_wait_ms` |
 | `ExtractionError` | The page did not satisfy the model |
+| `ChatError` | A chat site could not do what was asked: no such chat, a list that would not settle, a closed thread |
+| `LoggedOutError` | The chat site is not logged in, or logged the session out (a `ChatError`) |
+| `SendUnconfirmedError` | A message was submitted but never showed up in the thread (a `ChatError`) |
 
 Patchright passes non-interactive challenges by itself; khoji waits for them to clear. It does not solve interactive CAPTCHAs.
 

@@ -45,7 +45,7 @@ class Message(BaseModel):
     """Message text. Empty for non-text messages such as images."""
 
     meta: str | None = None
-    """Reserved for extra details such as the timestamp; not filled in yet."""
+    """Extra details the platform shows with the message, such as time and sender, if any."""
 
     fingerprint: str = ""
     """Stable identity used to tell messages apart: the id, or a hash when there is none."""

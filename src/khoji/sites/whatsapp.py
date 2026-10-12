@@ -65,7 +65,10 @@ class WhatsApp(ChatSite):
     const text = [...row.querySelectorAll(textNodes)]
       .filter(node => !node.parentElement.closest(textNodes))
       .map(node => node.innerText).join('\\n').trim();
-    return {id: row.getAttribute('data-id'), direction, text};
+    // "[10:32, 12/10/2026] Alice: " on text messages; absent on media and system rows.
+    const stamped = row.querySelector('[data-pre-plain-text]');
+    const meta = stamped ? stamped.getAttribute('data-pre-plain-text').trim() : null;
+    return {id: row.getAttribute('data-id'), direction, text, meta};
   });
 }
 """

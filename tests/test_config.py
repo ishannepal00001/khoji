@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from khoji import KhojiConfig, ProxyConfig
-from khoji.browser import launch_options
+from khoji.browser import BrowserLauncher
 
 
 def test_defaults():
@@ -42,7 +42,7 @@ def test_proxy_password_is_not_leaked_in_repr():
 
 
 def test_launch_options_never_override_fingerprint(tmp_path):
-    options = launch_options(KhojiConfig(user_data_dir=tmp_path))
+    options = BrowserLauncher(KhojiConfig(user_data_dir=tmp_path)).launch_options()
     assert options["no_viewport"] is True
     assert options["headless"] is False
     assert not {"user_agent", "extra_http_headers", "viewport"} & options.keys()
@@ -55,7 +55,7 @@ def test_launch_options_pass_proxy_and_locale(tmp_path):
         locale="en-GB",
         timezone_id="Asia/Kathmandu",
     )
-    options = launch_options(config)
+    options = BrowserLauncher(config).launch_options()
     assert options["proxy"] == {"server": "http://proxy:8080", "username": "u", "password": "hunter2"}
     assert options["locale"] == "en-GB"
     assert options["timezone_id"] == "Asia/Kathmandu"
@@ -63,6 +63,6 @@ def test_launch_options_pass_proxy_and_locale(tmp_path):
 
 def test_executable_path_wins_over_channel(tmp_path):
     config = KhojiConfig(user_data_dir=tmp_path, executable_path=Path("/usr/bin/chromium"), channel="chrome")
-    options = launch_options(config)
+    options = BrowserLauncher(config).launch_options()
     assert options["executable_path"] == "/usr/bin/chromium"
     assert "channel" not in options

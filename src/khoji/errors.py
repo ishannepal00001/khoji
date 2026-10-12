@@ -1,3 +1,9 @@
+"""Exceptions raised by khoji.
+
+Every error inherits from `KhojiError`, so a single `except KhojiError` catches them all.
+"""
+
+
 class KhojiError(Exception):
     """Base class for every error khoji raises."""
 
@@ -7,18 +13,42 @@ class NavigationError(KhojiError):
 
 
 class BlockedError(KhojiError):
-    """The site answered with a block or an anti-bot challenge that did not clear."""
+    """The site answered with a block or an anti-bot challenge that did not clear.
+
+    Attributes:
+        url: The URL that was being opened.
+        status: HTTP status of the response, or None when there was no response.
+    """
 
     def __init__(self, message: str, *, url: str, status: int | None = None) -> None:
+        """Create the error.
+
+        Args:
+            message: Human-readable description of the block.
+            url: The URL that was being opened.
+            status: HTTP status of the response, if there was one.
+        """
         super().__init__(message)
         self.url = url
         self.status = status
 
 
 class ExtractionError(KhojiError):
-    """The page content did not satisfy the requested model."""
+    """The page content did not satisfy the requested model.
+
+    Attributes:
+        url: The URL of the page that was being extracted.
+        model: The model class that could not be built.
+    """
 
     def __init__(self, message: str, *, url: str, model: type) -> None:
+        """Create the error.
+
+        Args:
+            message: Human-readable description, including the validation errors.
+            url: The URL of the page that was being extracted.
+            model: The model class that could not be built.
+        """
         super().__init__(message)
         self.url = url
         self.model = model

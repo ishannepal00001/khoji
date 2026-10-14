@@ -1,18 +1,21 @@
 """`KhojiPage`: one browser tab, with block detection on navigation and typed extraction."""
 
 import logging
+import random
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
+from urllib.parse import urldefrag, urlparse
 
 from patchright.async_api import Error as PatchrightError
 from patchright.async_api import Page, Response
 from pydantic import BaseModel
 
 from .config import KhojiConfig
-from .errors import BlockedError, NavigationError
+from .errors import BlockedError, KhojiError, NavigationError
 from .extract import Extractor
+from .models import Link, ScrollResult
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +43,56 @@ _CHALLENGE_SELECTORS = (
 _CHALLENGE_SELECTOR = ", ".join(_CHALLENGE_SELECTORS)
 # Gap between checks while waiting for a challenge to clear.
 _POLL_MS = 250
+# Share of the visible height moved by one scroll step, so consecutive views overlap.
+_SCROLL_STEP = 0.8
+# Pixels short of the bottom that still count as being at the bottom (sub-pixel rounding).
+_SCROLL_SLACK = 2
+
+# Runs in the page. Finds what to scroll, optionally scrolls it by `by` pixels, and reports
+# its position plus a point inside it for the mouse. With no selector it takes the document
+# when that can scroll, else the largest scrollable element (feeds that live in an inner div).
+_SCROLL_STATE_JS = """
+({selector, by}) => {
+  const canScroll = el => el.scrollHeight - el.clientHeight > 2;
+  const hidden = el => !!el && getComputedStyle(el).overflowY === 'hidden';
+  const doc = document.scrollingElement || document.documentElement;
+  let target = null;
+  if (selector) target = document.querySelector(selector);
+  else if (canScroll(doc) && !hidden(document.documentElement) && !hidden(document.body)) target = doc;
+  else {
+    let best = 0;
+    for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+      if (!canScroll(el) || !['auto', 'scroll', 'overlay'].includes(getComputedStyle(el).overflowY)) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width * box.height > best) { best = box.width * box.height; target = el; }
+    }
+  }
+  if (!target) return null;
+  if (by) target.scrollBy(0, by);
+  const box = target === doc
+    ? {left: 0, top: 0, right: innerWidth, bottom: innerHeight}
+    : target.getBoundingClientRect();
+  const left = Math.max(box.left, 0), right = Math.min(box.right, innerWidth);
+  const top = Math.max(box.top, 0), bottom = Math.min(box.bottom, innerHeight);
+  return {
+    top: target.scrollTop, client: target.clientHeight, height: target.scrollHeight,
+    x: (left + right) / 2, y: (top + bottom) / 2,
+  };
+}
+"""
+
+# Runs in the page, on an element or the whole document. One call gives a consistent snapshot.
+_LINKS_JS = """
+scope => [...(scope || document).querySelectorAll('a[href]')]
+  .filter(a => typeof a.href === 'string')  // SVG links hold an object, not a URL
+  .map(a => ({
+    url: a.href,
+    text: (a.innerText || '').replace(/\\s+/g, ' ').trim()
+      || a.getAttribute('aria-label') || a.getAttribute('title') || '',
+    title: a.getAttribute('title'),
+    rel: [...a.relList],
+  }))
+"""
 
 
 class KhojiPage:
@@ -126,6 +179,111 @@ class KhojiPage:
         elements = await self._page.locator(root).all()
         return [await self._extractor.extract(element, model, url=self.url) for element in elements]
 
+    async def scroll_to_end(
+        self,
+        *,
+        container: str | None = None,
+        max_rounds: int = 50,
+        timeout_ms: int = 30_000,
+        pause_ms: tuple[int, int] = (500, 1200),
+        settle_checks: int = 2,
+    ) -> ScrollResult:
+        """Scroll down for as long as the page can go further, loading lazy and infinite content.
+
+        Scrolls with the mouse wheel, so scroll listeners and lazy loaders fire as they would
+        for a person. At the bottom it keeps checking for `settle_checks` pauses in case more
+        content is still loading. A page that cannot scroll returns at once.
+
+        Args:
+            container: CSS selector of the element to scroll. None picks the document, or the
+                largest scrollable element when the document itself cannot scroll.
+            max_rounds: Most scroll steps to take before giving up.
+            timeout_ms: Most time to spend scrolling before giving up.
+            pause_ms: Range of the random pause after each step, in milliseconds.
+            settle_checks: Pauses at the bottom with no new content before it counts as the end.
+
+        Returns:
+            How many steps were taken, the final scroll height, and whether the end was reached.
+
+        Raises:
+            KhojiError: If `container` matches no element.
+        """
+        deadline = time.monotonic() + timeout_ms / 1000
+        state = await self._scroll_state(container)
+        if state is None:
+            if container is not None:
+                raise KhojiError(f"No element matches {container!r} on {self.url}")
+            return ScrollResult(rounds=0, height=0, reached_end=True)
+        if not self._can_scroll_down(state):
+            return ScrollResult(rounds=0, height=state["height"], reached_end=True)
+
+        rounds = idle = 0
+        use_wheel = True
+        while True:
+            if self._can_scroll_down(state):
+                if rounds >= max_rounds or time.monotonic() >= deadline:
+                    log.info("Stopped scrolling %s after %d steps, before the end", self.url, rounds)
+                    return ScrollResult(rounds=rounds, height=state["height"], reached_end=False)
+                step = round(state["client"] * _SCROLL_STEP * random.uniform(0.85, 1.15))
+                if use_wheel:
+                    await self._page.mouse.move(state["x"], state["y"])
+                    await self._page.mouse.wheel(0, step)
+                else:
+                    await self._scroll_state(container, by=step)
+                rounds += 1
+                idle = 0
+            elif idle >= settle_checks:
+                return ScrollResult(rounds=rounds, height=state["height"], reached_end=True)
+            else:
+                idle += 1
+            await self._page.wait_for_timeout(random.randint(*pause_ms))
+            previous, state = state, await self._scroll_state(container)
+            if state is None:  # the scrolled element went away, e.g. the page re-rendered
+                return ScrollResult(rounds=rounds, height=previous["height"], reached_end=True)
+            if use_wheel and idle == 0 and state["top"] <= previous["top"] and self._can_scroll_down(state):
+                # The wheel landed on something else (an overlay, a fixed header); scroll directly.
+                use_wheel = False
+
+    async def links(
+        self,
+        *,
+        root: str | None = None,
+        internal: bool | None = None,
+        schemes: tuple[str, ...] = ("http", "https"),
+    ) -> list[Link]:
+        """Return the links currently on the page, once each, in document order.
+
+        Read from the live page, so links loaded by `scroll_to_end` are included. URLs are
+        absolute and have their `#fragment` removed, so anchors into the same page collapse
+        into one link.
+
+        Args:
+            root: CSS selector that scopes the search to the first matching element. None
+                means the whole page.
+            internal: True keeps only links to the page's own host, False only links
+                elsewhere. None keeps both.
+            schemes: URL schemes to keep; mailto:, tel: and javascript: links are dropped by
+                default.
+
+        Returns:
+            One `Link` per distinct URL, first occurrence first.
+        """
+        if root is None:
+            raw = await self._page.evaluate(_LINKS_JS)
+        else:
+            raw = await self._page.locator(root).first.evaluate(_LINKS_JS)
+        host = urlparse(self.url).hostname
+        links: dict[str, Link] = {}
+        for item in raw:
+            url = urldefrag(item["url"]).url
+            parsed = urlparse(url)
+            if parsed.scheme not in schemes or url in links:
+                continue
+            link = Link(**{**item, "url": url}, internal=parsed.hostname == host)
+            if internal is None or link.internal == internal:
+                links[url] = link
+        return list(links.values())
+
     async def close(self) -> None:
         """Close the tab."""
         await self._page.close()
@@ -153,6 +311,24 @@ class KhojiPage:
             return None
         log.info("Saved debug files to %s.{png,html}", stem)
         return stem
+
+    async def _scroll_state(self, container: str | None, *, by: int = 0) -> dict[str, Any] | None:
+        """Find the element to scroll, optionally scroll it, and report where it stands.
+
+        Args:
+            container: CSS selector of the element to scroll, or None to pick one.
+            by: Pixels to scroll down directly before reporting. 0 only reads.
+
+        Returns:
+            `top`, `client` and `height` (scroll position, visible height, scroll height) and
+            `x`, `y` (a viewport point inside the element), or None if there is nothing to scroll.
+        """
+        return await self._page.evaluate(_SCROLL_STATE_JS, {"selector": container, "by": by})
+
+    @staticmethod
+    def _can_scroll_down(state: dict[str, Any]) -> bool:
+        """Report whether the element described by `state` has more content below the view."""
+        return state["top"] + state["client"] < state["height"] - _SCROLL_SLACK
 
     async def _challenge(self) -> str | None:
         """Check whether the page currently shows an anti-bot challenge.

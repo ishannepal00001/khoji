@@ -118,9 +118,70 @@ CHAT = """
 </script></body></html>
 """
 
+# An infinite feed: scrolling near the bottom loads another batch, a moment later, until
+# `?batches=N` (default 3) batches are on the page. Each item links to its own page.
+FEED_SCRIPT = """
+<script>
+  const batches = Number(new URLSearchParams(location.search).get('batches') || 3);
+  const feed = document.getElementById('feed');
+  const scroller = feed.dataset.inner ? feed : document.scrollingElement;
+  let loaded = 0, loading = false;
+  function load() {
+    for (let i = 0; i < 5; i++) {
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.style.height = '200px';
+      const n = loaded * 5 + i;
+      item.innerHTML = '<a href="/item/' + n + '">Item ' + n + '</a>';
+      feed.appendChild(item);
+    }
+    loaded++;
+  }
+  (feed.dataset.inner ? feed : window).addEventListener('scroll', () => {
+    const near = scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 200;
+    if (!near || loading || loaded >= batches) return;
+    loading = true;
+    setTimeout(() => { load(); loading = false; }, 100);
+  });
+  load();
+</script>
+"""
+
+FEED = '<html><head><title>Feed</title></head><body><div id="feed"></div>' + FEED_SCRIPT + "</body></html>"
+
+# The same feed inside a fixed-height scrolling div, while the page itself cannot scroll.
+INNER_FEED = (
+    '<html><head><title>Feed</title></head><body style="margin: 0; height: 100vh; overflow: hidden">'
+    '<header style="height: 50px">Top bar</header>'
+    '<div id="feed" data-inner="1" style="height: 400px; overflow-y: auto"></div>'
+    + FEED_SCRIPT
+    + "</body></html>"
+)
+
+LINKS = """
+<html><head><title>Links</title></head><body>
+  <nav>
+    <a href="/about" rel="nofollow noopener">  About
+      us </a>
+    <a href="/about#team">Team</a>
+    <a href="https://example.org/x" title="Elsewhere">Example</a>
+  </nav>
+  <main>
+    <a href="/docs"><img alt=""></a>
+    <a href="/icon" aria-label="Settings"></a>
+    <a href="mailto:hi@example.com">Mail</a>
+    <a href="javascript:void(0)">Nothing</a>
+    <a name="anchor-only">No href</a>
+  </main>
+</body></html>
+"""
+
 ROUTES = {
     "/products": (200, PRODUCTS),
     "/chat": (200, CHAT),
+    "/feed": (200, FEED),
+    "/inner-feed": (200, INNER_FEED),
+    "/links": (200, LINKS),
     "/forbidden": (403, "<html><head><title>Nope</title></head><body>Forbidden</body></html>"),
     "/challenge": (403, CHALLENGE),
     "/clearing": (403, CLEARING_CHALLENGE),

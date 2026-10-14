@@ -16,6 +16,7 @@ from .errors import (
     SendUnconfirmedError,
 )
 from .extract import Extractor, Selector
+from .models import Link, ScrollResult
 from .page import KhojiPage
 from .sites import Site
 
@@ -29,9 +30,11 @@ __all__ = [
     "KhojiConfig",
     "KhojiError",
     "KhojiPage",
+    "Link",
     "LoggedOutError",
     "NavigationError",
     "ProxyConfig",
+    "ScrollResult",
     "Selector",
     "SendUnconfirmedError",
     "Site",

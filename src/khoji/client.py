@@ -109,7 +109,9 @@ class Khoji:
         page = blank[0] if blank else await context.new_page()
         return KhojiPage(page, self.config)
 
-    async def open(self, url: str, *, wait_until: WaitUntil = "domcontentloaded") -> KhojiPage:
+    async def open(
+        self, url: str, *, wait_until: WaitUntil = "domcontentloaded", scroll: bool = False
+    ) -> KhojiPage:
         """Open `url` in a tab and return it once loaded and checked for blocks.
 
         The tab is closed again if the navigation fails, so failed opens do not leak tabs.
@@ -117,6 +119,8 @@ class Khoji:
         Args:
             url: Absolute URL to open.
             wait_until: Load state to wait for before returning.
+            scroll: Scroll to the end before returning, loading lazy and infinite content.
+                See `KhojiPage.scroll_to_end` for the limits; call it directly to change them.
 
         Returns:
             The loaded page.
@@ -128,7 +132,10 @@ class Khoji:
         """
         page = await self.new_page()
         try:
-            return await page.goto(url, wait_until=wait_until)
+            await page.goto(url, wait_until=wait_until)
+            if scroll:
+                await page.scroll_to_end()
+            return page
         except BaseException:
             await page.close()
             raise

@@ -47,12 +47,15 @@ class Site:
         """
         return urljoin(self.base_url, path)
 
-    async def open(self, path: str = "/", *, wait_until: WaitUntil = "domcontentloaded") -> KhojiPage:
+    async def open(
+        self, path: str = "/", *, wait_until: WaitUntil = "domcontentloaded", scroll: bool = False
+    ) -> KhojiPage:
         """Open a page of this site in a new tab.
 
         Args:
             path: Path relative to `base_url`.
             wait_until: Load state to wait for before returning.
+            scroll: Scroll to the end before returning, loading lazy and infinite content.
 
         Returns:
             The loaded page. The caller is responsible for closing it.
@@ -61,4 +64,4 @@ class Site:
             NavigationError: If the page could not be loaded.
             BlockedError: If the site answered with a block or a challenge that did not clear.
         """
-        return await self.khoji.open(self.url(path), wait_until=wait_until)
+        return await self.khoji.open(self.url(path), wait_until=wait_until, scroll=scroll)

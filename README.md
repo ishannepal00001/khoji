@@ -62,6 +62,22 @@ asyncio.run(main())
 - `Selector` is optional. A field without one is not scraped: it keeps its default, or is `None` if it has none.
 - `page.raw` is the underlying Patchright `Page` for clicks, waits and anything else.
 
+## Scrolling and links
+
+```python
+page = await k.open("https://example.com/feed", scroll=True)  # scroll to the end first
+
+result = await page.scroll_to_end(max_rounds=100)  # or scroll an already open page
+print(result.rounds, result.reached_end)
+
+for link in await page.links(internal=True):
+    print(link.url, link.text)
+```
+
+- `scroll_to_end()` scrolls with the mouse wheel while the page can still go down, waiting at the bottom for infinite feeds to load more. A page that cannot scroll returns at once.
+- It scrolls the document, or the largest scrollable element when the feed lives in an inner panel; pass `container="..."` to choose. `max_rounds` and `timeout_ms` bound it, and `ScrollResult.reached_end` says whether it got to the end.
+- `links()` returns one `Link(url, text, title, rel, internal)` per distinct absolute URL, in document order, read from the live page so scrolled-in content is included. Fragments are removed, and only http(s) links are kept unless `schemes=` says otherwise. `root=` scopes it to an element; `internal=True/False` keeps only same-host or only external links.
+
 ## Site modules
 
 Wrap a site's URLs and models in a `Site` subclass:

@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Self
 
-from patchright.async_api import BrowserContext, Playwright, async_playwright
+from patchright.async_api import BrowserContext, Page, Playwright, async_playwright
 
 from .browser import BrowserLauncher
 from .config import KhojiConfig
@@ -33,6 +33,8 @@ class Khoji:
         self.config = config or KhojiConfig()
         self._playwright: Playwright | None = None
         self._context: BrowserContext | None = None
+        # Blank tabs the browser opened with, not yet handed out by `new_page`.
+        self._spare_tabs: list[Page] = []
 
     @property
     def context(self) -> BrowserContext:
@@ -61,6 +63,8 @@ class Khoji:
         except BaseException:
             await self.close()
             raise
+        # A persistent context opens with a blank tab; hand that out before opening more.
+        self._spare_tabs = [page for page in self._context.pages if page.url == "about:blank"]
         return self
 
     async def close(self) -> None:
@@ -71,6 +75,7 @@ class Khoji:
         """
         context, self._context = self._context, None
         playwright, self._playwright = self._playwright, None
+        self._spare_tabs = []
         try:
             if context is not None:
                 await context.close()
@@ -97,6 +102,9 @@ class Khoji:
     async def new_page(self) -> KhojiPage:
         """Return a blank tab, reusing the one the browser opened with if it is still unused.
 
+        Each tab is handed out once, so concurrent calls (and concurrent `open` calls) always
+        get tabs of their own.
+
         Returns:
             A page that has not navigated anywhere yet.
 
@@ -104,10 +112,12 @@ class Khoji:
             KhojiError: If the browser has not been started.
         """
         context = self.context
-        # A persistent context opens with one blank tab; use it before opening more.
-        blank = [page for page in context.pages if page.url == "about:blank"]
-        page = blank[0] if blank else await context.new_page()
-        return KhojiPage(page, self.config)
+        # Claim a spare before the first await, so no concurrent call can claim it too.
+        while self._spare_tabs:
+            page = self._spare_tabs.pop(0)
+            if not page.is_closed() and page.url == "about:blank":
+                return KhojiPage(page, self.config)
+        return KhojiPage(await context.new_page(), self.config)
 
     async def open(
         self, url: str, *, wait_until: WaitUntil = "domcontentloaded", scroll: bool = False

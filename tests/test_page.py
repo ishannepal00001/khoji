@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from khoji import Khoji, KhojiError, Link, Site
@@ -99,3 +101,17 @@ async def test_links_include_scrolled_content(khoji: Khoji, server: str):
     links = await page.links()
     assert len(links) == 15
     assert links[-1].url == f"{server}/item/14"
+
+
+async def test_concurrent_opens_get_their_own_tabs(khoji: Khoji, server: str):
+    paths = ["/products", "/links", "/feed"]
+    pages = await asyncio.gather(*(khoji.open(f"{server}{path}") for path in paths))
+
+    assert len({id(page.raw) for page in pages}) == len(paths)
+    assert [page.url for page in pages] == [f"{server}{path}" for path in paths]
+
+
+async def test_first_open_reuses_the_initial_blank_tab(khoji: Khoji, server: str):
+    before = len(khoji.context.pages)
+    await khoji.open(f"{server}/products")
+    assert len(khoji.context.pages) == before

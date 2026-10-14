@@ -4,7 +4,19 @@ Stealth Playwright scraping with Pydantic-typed extraction.
 
 - **One entry point**: `Khoji` owns the browser and hands out pages.
 - **Typed extraction**: declare selectors on a Pydantic model and get validated objects back.
+- **Scrolling and links**: load infinite feeds with `scroll=True`, and get every link as a typed `Link`.
 - **Bot-detection bypass**: built on [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python), a patched Playwright that removes the automation leaks detectors look for.
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md), ordered from first steps to internals:
+
+- **Getting started**: [Installation](docs/getting-started/01-installation.md) → [Your first scrape](docs/getting-started/02-first-scrape.md) → [Core concepts](docs/getting-started/03-core-concepts.md)
+- **Guides**: [Extraction](docs/guides/extraction.md) · [Scrolling](docs/guides/scrolling.md) · [Links](docs/guides/links.md) · [Site modules](docs/guides/site-modules.md) · [Configuration](docs/guides/configuration.md) · [Errors and debugging](docs/guides/errors-and-debugging.md) · [Chat sites](docs/guides/chat-sites.md)
+- **Advanced**: [Stealth](docs/advanced/stealth.md) · [`page.raw`](docs/advanced/raw-patchright.md) · [Adding a chat platform](docs/advanced/custom-chat-platform.md) · [Recipes](docs/advanced/recipes.md)
+- **Reference**: [API](docs/reference/api.md) · [Contributing](docs/reference/contributing.md)
+
+The rest of this README is a quick tour.
 
 ## Install
 
@@ -183,6 +195,7 @@ All inherit from `KhojiError`.
 | `NavigationError` | The page could not be loaded: DNS failure, timeout, refused connection |
 | `BlockedError` | HTTP 403/429, or an anti-bot challenge (Cloudflare, DataDome, PerimeterX) that did not clear within `challenge_wait_ms` |
 | `ExtractionError` | The page did not satisfy the model |
+| `KhojiError` | Raised directly when the browser is not started, or `scroll_to_end(container=...)` matches no element |
 | `ChatError` | A chat site could not do what was asked: no such chat, a list that would not settle, a closed thread |
 | `LoggedOutError` | The chat site is not logged in, or logged the session out (a `ChatError`) |
 | `SendUnconfirmedError` | A message was submitted but never showed up in the thread (a `ChatError`) |
